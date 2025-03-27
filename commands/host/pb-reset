@@ -1,0 +1,29 @@
+#!/bin/bash
+
+## Description: Re-install Project Browser from scratch
+## Usage: pb-reset
+## Aliases: pbr
+## Example: ddev pbr\nddev pb-reset
+
+# Fail on any error
+set -e
+
+# Define color codes
+BRIGHT_WHITE="\033[1;37m"
+LIGHT_BLUE="\033[1;34m"
+RESET="\033[0m"
+
+start=$(date +%s.%N)
+ddev drush si -y
+ddev drush en -y package_manager
+ddev drush en -y project_browser
+ddev drush cset -y package_manager.settings include_unknown_files_in_project_root true
+ddev drush cset -y project_browser.admin_settings allow_ui_install true
+ddev drush cset -y --input-format=yaml package_manager.settings additional_trusted_composer_plugins \[tbachert/spi\]
+ddev drush cr
+ddev login
+echo
+echo ========== Project Browser Reset Complete ==========
+duration=$(echo "$(date +%s.%N) - $start" | bc)
+execution_time=`printf "%.2f seconds" $duration`
+echo -e "${BRIGHT_WHITE}Script Execution Time: ${LIGHT_BLUE}${execution_time}${RESET}"

@@ -1,0 +1,106 @@
+#!/bin/bash
+
+## Description: Switch to a new issue fork and branch
+## Usage: switch [args]
+## Example: ddev switch branch-name 123456\nddev switch 123456-branch-name
+
+# Fail on any error
+set -e
+
+# Check if the current directory is a git repository
+if ! git rev-parse --is-inside-work-tree > /dev/null 2>&1; then
+    echo "Error: This command must be run from within a Git repository."
+    exit 1
+fi
+
+# Function to extract issue number from branch name
+extract_issue_number() {
+    local branch="$1"
+    if [[ "$branch" =~ ^([0-9]+)- ]]; then
+        echo "${BASH_REMATCH[1]}"
+    else
+        echo ""
+    fi
+}
+
+# Check for branch name argument
+if [ -z "$1" ]; then
+    echo "Usage: ddev switch <branch-name> [issue-number]"
+    exit 2
+fi
+
+branch_name="$1"
+issue_number="$2"
+
+# Try to extract the issue number from the branch name if not provided
+if [ -z "$issue_number" ]; then
+    issue_number=$(extract_issue_number "$branch_name")
+    if [ -z "$issue_number" ]; then
+        echo "Unable to infer issue number from branch name. Please specify the issue number as a second parameter."
+        exit 3
+    fi
+fi
+
+remote_name="project_browser-${issue_number}"
+remote_url="git@git.drupal.org:issue/project_browser-${issue_number}.git"
+
+# Add remote if it doesn't already exist
+if ! git remote | grep -q "^${remote_name}$"; then
+    echo "Adding remote: ${remote_name}"
+    git remote add "${remote_name}" "${remote_url}"
+else
+    echo "Remote '${remote_name}' already exists."
+fi
+
+# Fetch the latest from the remote
+echo "Fetching from remote: ${remote_name}"
+git fetch "${remote_name}"
+
+# Check if the branch already exists locally
+if git branch --list | grep -q "${branch_name}"; then
+    echo "Switching to existing branch '${branch_name}'"
+    git checkout "${branch_name}"
+    
+    # Check for local commits not present on the remote
+    if git rev-list --left-only --count "${branch_name}...${remote_name}/${branch_name}" | grep -q "^[1-9]"; then
+        echo "Local commits detected on branch '${branch_name}' that are not on the remote."
+        echo "You can choose to pull with rebase, sync from remote, or stop:"
+        echo "1) Pull with --rebase"
+        echo "2) Discard all local commits and sync to the remote"
+        echo "3) Skip pulling for now"
+        
+        read -p "Enter your choice (1/2/3): " choice
+        case $choice in
+            1)
+                echo "Pulling with --rebase..."
+                git pull --rebase
+            ;;
+            2)
+                echo "Backing up local commits to a temporary branch..."
+                backup_branch="backup/${branch_name}-$(date +%Y%m%d%H%M%S)"
+                git branch "${backup_branch}"
+                echo "Local commits backed up to branch '${backup_branch}'."
+                
+                echo "Resetting branch to match the remote..."
+                git reset --hard "${remote_name}/${branch_name}"
+            ;;
+            3)
+                echo "Skipping pull. You may resolve conflicts manually if needed."
+            ;;
+            *)
+                echo "Invalid choice. Skipping pull."
+            ;;
+        esac
+    else
+        echo "No local commits detected. Pulling the latest changes..."
+        git pull
+    fi
+    
+    
+else
+    # Create a new branch and track the remote branch
+    echo "Creating and switching to new branch '${branch_name}'"
+    git checkout -b "${branch_name}" --track "${remote_name}/${branch_name}"
+fi
+
+echo "Switched to branch '${branch_name}' successfully."
